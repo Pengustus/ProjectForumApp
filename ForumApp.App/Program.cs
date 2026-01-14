@@ -10,11 +10,17 @@ namespace ForumApp.App
         private static UserSessionDTO currentSession = new UserSessionDTO { Id = 0, Username = "Guest" };
         private static ForumDbContext context = new ForumDbContext();
         private static UserService userService = new UserService(context);
+        private static PostService postService = new PostService(context);
+        private static CommentService commentService = new CommentService(context);
+        private static AdminService adminService = new AdminService(context);
 
         public static void Main(string[] args)
         {
             context.Database.EnsureCreated();
+            Console.InputEncoding = System.Text.Encoding.UTF8;
             Console.OutputEncoding = System.Text.Encoding.UTF8;
+            DbSeeder.SeedCategories(context);
+            DbSeeder.SeedAdmin(context);
 
             Console.WriteLine("Добре дошли във Форума на играта!");
             RunInitialMenu();
@@ -55,7 +61,7 @@ namespace ForumApp.App
                         return;
                     default:
                         Console.WriteLine("Невалидна опция. Моля, опитайте отново.");
-                        InputUtility.ReadString("Натиснете Enter за продължаване...");
+                        InputUtility.PressEnterToContinue();
                         break;
                 }
             }
@@ -91,7 +97,7 @@ namespace ForumApp.App
                 Console.WriteLine($"\n[УСПЕХ] Потребител {dto.Username} е регистриран! Можете да влезете.");
             }
 
-            InputUtility.ReadString("Натиснете Enter за продължаване...");
+            InputUtility.PressEnterToContinue();
         }
 
         private static void Login()
@@ -117,14 +123,225 @@ namespace ForumApp.App
                 Console.WriteLine("\n[ГРЕШКА] Невалидно потребителско име или парола.");
             }
 
-            InputUtility.ReadString("Натиснете Enter за продължаване...");
+            InputUtility.PressEnterToContinue();
         }
 
         private static void RunMainMenu()
         {
-            Console.WriteLine("\n*** ГЛАВНО МЕНЮ (Функционалност предстои...) ***");
+            while (true)
+            {
+                Console.Clear();
+                Console.WriteLine($"=== ГЛАВНО МЕНЮ | Потребител: {currentSession.Username} ===");
+                Console.WriteLine("1. Виж всички публикации");
+                Console.WriteLine("2. Създай нова публикация");
 
-            InputUtility.ReadString("Натиснете Enter за връщане към началния екран...");
+                if (currentSession.IsAdmin)
+                {
+                    Console.WriteLine("A. Админ Панел");
+                }
+
+                Console.WriteLine("3. Изход (Logout)");
+                Console.WriteLine("---------------------------------------------");
+
+                Console.Write("Изберете опция: ");
+                string choice = Console.ReadLine()?.ToUpper();
+
+                if (choice == "1") ShowAllPosts();
+                else if (choice == "2") CreatePost();
+                else if (choice == "A" && currentSession.IsAdmin) RunAdminMenu();
+                else if (choice == "3") { currentSession = new UserSessionDTO { Id = 0, Username = "Guest" }; break; }
+            }
+        }
+
+        private static void RunAdminMenu()
+        {
+            while (true)
+            {
+                Console.Clear();
+                Console.WriteLine("--- АДМИНИСТРАТОРСКИ ПАНЕЛ ---");
+                Console.WriteLine("1. Списък на всички потребители");
+                Console.WriteLine("2. Изтриване на публикация (Модерация)");
+                Console.WriteLine("3. Назад");
+
+                int choice = InputUtility.ReadInt("Избор: ");
+
+                if (choice == 1)
+                {
+                    var users = adminService.GetAllUsers();
+                    Console.WriteLine("\nРЕГИСТРИРАНИ ПОТРЕБИТЕЛИ:");
+                    foreach (var u in users) Console.WriteLine($"- ID: {u.Id} | Име: {u.Username} | Роля: {u.Role}");
+                    InputUtility.PressEnterToContinue();
+                }
+                else if (choice == 2)
+                {
+                    int postId = InputUtility.ReadInt("Въведете ID на публикацията за изтриване: ");
+                    if (adminService.DeletePost(postId)) Console.WriteLine("Публикацията е изтрита успешно!");
+                    else Console.WriteLine("Грешка: Публикацията не съществува.");
+                    InputUtility.PressEnterToContinue();
+                }
+                else if (choice == 3) break;
+            }
+        }
+
+        private static void ShowAllPosts()
+        {
+            Console.Clear();
+            var posts = postService.GetAllPosts();
+
+            Console.WriteLine("--- ВСИЧКИ ПУБЛИКАЦИИ ---");
+            foreach (var p in posts)
+            {
+                Console.WriteLine($"[{p.Id}] {p.Title} (от {p.AuthorName})");
+            }
+
+            Console.WriteLine("\nВъведете ID на публикация, за да я прочетете, или 0 за връщане:");
+            int postId = InputUtility.ReadInt("Избор: ");
+
+            if (postId != 0)
+            {
+                ViewPostDetails(postId);
+            }
+        }
+
+        private static void CreatePost()
+        {
+            if (currentSession.Id == 0)
+            {
+                Console.WriteLine("\n[ГРЕШКА] Гостите не могат да публикуват. Моля, регистрирайте се.");
+                InputUtility.PressEnterToContinue();
+                return;
+            }
+
+            var categories = postService.GetCategories();
+            if (!categories.Any())
+            {
+                Console.WriteLine("\n[ГРЕШКА] Все още няма категории. Админът трябва да добави такива.");
+                InputUtility.PressEnterToContinue();
+                return;
+            }
+
+            Console.Clear();
+            Console.WriteLine("--- НОВА ПУБЛИКАЦИЯ ---");
+            string title = InputUtility.ReadString("Заглавие: ");
+            string content = InputUtility.ReadString("Съдържание: ");
+
+            Console.WriteLine("\nНалични категории:");
+            foreach (var cat in categories) Console.WriteLine($"{cat.Key}: {cat.Value}");
+            int catId = InputUtility.ReadInt("Изберете ID на категория: ");
+
+            postService.CreatePost(new PostCreateDTO
+            {
+                Title = title,
+                Content = content,
+                AuthorId = currentSession.Id,
+                CategoryId = catId
+            });
+
+            Console.WriteLine("\n[УСПЕХ] Темата е публикувана!");
+            InputUtility.PressEnterToContinue();
+        }
+
+        private static void ViewPostDetails(int postId)
+        {
+
+            var posts = postService.GetAllPosts();
+            var post = posts.FirstOrDefault(p => p.Id == postId);
+
+            if (post == null)
+            {
+                Console.WriteLine("Публикацията не е намерена.");
+                InputUtility.PressEnterToContinue();
+                return;
+            }
+
+            Console.Clear();
+            Console.WriteLine($"ЗАГЛАВИЕ: {post.Title}");
+            Console.WriteLine($"АВТОР: {post.AuthorName} | КАТЕГОРИЯ: {post.CategoryName}");
+            Console.WriteLine(new string('-', 40));
+            Console.WriteLine(post.Content);
+            Console.WriteLine(new string('-', 40));
+
+            var comments = commentService.GetCommentsByPostId(postId);
+            Console.WriteLine($"КОМЕНТАРИ ({comments.Count}):");
+
+            foreach (var c in comments)
+            {
+                Console.WriteLine($" >> [{c.AuthorName}]: {c.Content} ({c.CreatedOn:dd/MM HH:mm})");
+            }
+
+            Console.WriteLine("\nОпции: 1. Добави коментар | 2. Назад");
+            int choice = InputUtility.ReadInt("Избор: ");
+
+            if (choice == 1)
+            {
+                AddComment(postId);
+                ViewPostDetails(postId); 
+            }
+        }
+
+        private static void AddComment(int postId)
+        {
+            if (currentSession.Id == 0)
+            {
+                Console.WriteLine("Трябва да сте влезли в профила си, за да коментирате.");
+                InputUtility.PressEnterToContinue();
+                return;
+            }
+
+            string content = InputUtility.ReadString("Вашият коментар: ");
+
+            commentService.AddComment(new CommentCreateDTO
+            {
+                Content = content,
+                PostId = postId,
+                AuthorId = currentSession.Id
+            });
+
+            Console.WriteLine("Коментарът е добавен!");
+        }
+
+        private static void ImportJson()
+        {
+            Console.Clear();
+            Console.WriteLine("--- ИМПОРТ НА ДАННИ (JSON) ---");
+            Console.Write("Въведете ПЪЛЕН ПЪТ до файла (напр. C:\\data\\tags.json): ");
+            string path = Console.ReadLine();
+
+            if (File.Exists(path))
+            {
+                try
+                {
+                    string jsonContent = File.ReadAllText(path);
+                    string message = postService.ImportTags(jsonContent);
+                    Console.WriteLine(message);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Грешка при четене на JSON: " + ex.Message);
+                }
+            }
+            else
+            {
+                Console.WriteLine("Грешка: Файлът не е намерен на посочения път!");
+            }
+        }
+
+        private static void ExportJson()
+        {
+            Console.Clear();
+            Console.WriteLine("--- ЕКСПОРТ НА ДАННИ (JSON) ---");
+            Console.Write("Въведете име за новия файл (напр. MyExport.json): ");
+            string fileName = Console.ReadLine();
+
+            try
+            {
+                postService.ExportPosts(fileName);
+                Console.WriteLine($"Данните бяха успешно експортирани в {fileName}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Грешка при експорта: " + ex.Message);
+            }
         }
 
         private static string GetRoleString(UserSessionDTO session)

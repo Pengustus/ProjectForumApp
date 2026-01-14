@@ -43,5 +43,11 @@ namespace ForumApp.App.Utilities
                 Console.WriteLine("--> Невалиден вход. Моля, въведете цяло число.");
             }
         }
+
+        public static void PressEnterToContinue()
+        {
+            Console.WriteLine("\nНатиснете [Enter] за продължаване...");
+            Console.ReadLine();
+        }
     }
 }
